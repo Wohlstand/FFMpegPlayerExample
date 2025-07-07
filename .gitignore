@@ -1,0 +1,5 @@
+build/*
+.DS_Store
+desktop.ini*
+*.user*
+.idea/*
