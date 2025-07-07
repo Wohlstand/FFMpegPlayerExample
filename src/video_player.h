@@ -13,6 +13,7 @@ extern "C"
 }
 
 #include <vector>
+#include <deque>
 
 
 struct SDL_Renderer;
@@ -69,6 +70,7 @@ class DerVideoPlayer
     double          m_time = 0.0;
     bool            m_atEnd = false;
     bool            m_hasVideoFrame = false;
+    bool            m_frameFirst = false;
 
     /* ------------------------------------------ */
     //! Input context of video stream
@@ -101,6 +103,10 @@ class DerVideoPlayer
     AVFrame        *in_frame = nullptr;
     //! Packet buffer
     AVPacket        m_paquet;
+    std::deque<AVPacket> m_videoPaquets;
+    void videoPaquetToQueue();
+    void videoPaquetsClean();
+    void videoPaquetsProcess();
 
     //! Actual stream of audio
     AVStream       *m_audio = nullptr;
@@ -131,7 +137,7 @@ class DerVideoPlayer
     bool updateVideoStream();
 
     int decode_audio_packet(bool &got);
-    int decode_video_packet(bool &got);
+    int decode_video_packet(AVPacket &paquet, bool &got);
 
 public:
     explicit DerVideoPlayer(SDL_Renderer *dst = nullptr);

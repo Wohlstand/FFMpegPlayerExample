@@ -37,6 +37,8 @@ static void videoLoop(const std::string &video, DerVideoPlayer& player, SDL_Rend
     }
 
     SDL_RenderClear(render);
+    if(video != "noise")
+        SDL_RenderPresent(render);
 
     SDL_PauseAudio(0);
 

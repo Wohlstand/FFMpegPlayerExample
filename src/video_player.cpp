@@ -86,6 +86,44 @@ int64_t _rw_seek(void *opaque, int64_t offset, int whence)
     return SDL_RWseek(music->m_src, offset, rw_whence);
 }
 
+void DerVideoPlayer::videoPaquetToQueue()
+{
+    m_videoPaquets.push_back(m_paquet);
+    SDL_memset(&m_paquet, 0, sizeof(AVPacket));
+}
+
+void DerVideoPlayer::videoPaquetsClean()
+{
+    while(!m_videoPaquets.empty())
+    {
+        auto p = m_videoPaquets.front();
+        av_packet_unref(&p);
+        m_videoPaquets.pop_front();
+    }
+}
+
+void DerVideoPlayer::videoPaquetsProcess()
+{
+    double videoTime = 0.0;
+    double timeBase = av_q2d(m_video->time_base);
+
+    if(m_videoPaquets.empty())
+        return; // Nothing To Do
+
+    videoTime = (double)m_videoPaquets.front().pts * timeBase;
+
+    while((m_frameFirst || videoTime < m_time) && !m_videoPaquets.empty())
+    {
+        bool got;
+        auto p = m_videoPaquets.front();
+        videoTime = (double)p.pts * timeBase;
+        decode_video_packet(p, got);
+        av_packet_unref(&p);
+        m_videoPaquets.pop_front();
+        if(m_frameFirst)
+            m_frameFirst = false;
+    }
+}
 
 bool DerVideoPlayer::updateAudioStream()
 {
@@ -318,10 +356,10 @@ int DerVideoPlayer::decode_audio_packet(bool &got)
             swr_convert(m_swr_ctx, &out, m_audio_frame->nb_samples,
                         (const Uint8**)m_audio_frame->extended_data, m_audio_frame->nb_samples);
 
-            if (m_paquet.pts != AV_NOPTS_VALUE)
-                m_time = (double)m_paquet.pts * av_q2d(m_audio->time_base);
-            else
-                m_time = -1.0;
+            // if (m_paquet.pts != AV_NOPTS_VALUE)
+            //     m_time = (double)m_paquet.pts * av_q2d(m_audio->time_base);
+            // else
+            //     m_time = -1.0;
 
             if(SDL_AudioStreamPut(m_audio_cvt, m_merge_buffer.data(), unpadded_linesize) < 0)
             {
@@ -351,7 +389,7 @@ int DerVideoPlayer::decode_audio_packet(bool &got)
     return 0;
 }
 
-int DerVideoPlayer::decode_video_packet(bool &got)
+int DerVideoPlayer::decode_video_packet(AVPacket &paquet, bool &got)
 {
     int ret = 0;
     size_t unpadded_linesize;
@@ -359,7 +397,7 @@ int DerVideoPlayer::decode_video_packet(bool &got)
 
     got = false;
 
-    ret = avcodec_send_packet(m_decoderVideoCtx, &m_paquet);
+    ret = avcodec_send_packet(m_decoderVideoCtx, &paquet);
     if(ret < 0)
     {
         if(ret == AVERROR_EOF)
@@ -475,6 +513,8 @@ void DerVideoPlayer::close()
     m_paquet.size = 0;
     if(m_paquet.buf)
         av_packet_unref(&m_paquet);
+
+    videoPaquetsClean();
 
     SDL_memset(&m_paquet, 0, sizeof(AVPacket));
 
@@ -744,25 +784,57 @@ void DerVideoPlayer::drawVideoFrame()
 int DerVideoPlayer::runAV(Uint8 *stream, int len)
 {
     int filled, ret = 0;
-    bool got_some, got_video;
+    bool got_some;
+
+    if(!m_audio) // When no audio, just process a time
+    {
+        SDL_memset(stream, 0, len);
+        m_time += (len / (double)((SDL_AUDIO_BITSIZE(m_dstSpec.format) / 8) * m_dstSpec.channels)) / m_dstSpec.freq;
+
+        double videoTime = 0.0;
+        double timeBase = av_q2d(m_video->time_base);
+
+        while((ret = av_read_frame(m_inputCtx, &m_paquet)) >= 0)
+        {
+            if(m_paquet.stream_index == m_streamVideo)
+            {
+                videoTime = (double)m_paquet.pts * timeBase;
+                ret = decode_video_packet(m_paquet, got_some);
+            }
+
+            av_packet_unref(&m_paquet);
+
+            if(ret < 0 || videoTime >= m_time)
+                break;
+        }
+
+        if(ret == AVERROR_EOF)
+            m_atEnd = true;
+
+        return len;
+    }
 
     filled = SDL_AudioStreamGet(m_audio_cvt, stream, len);
     if(filled != 0)
+    {
+        m_time += (filled / (double)((SDL_AUDIO_BITSIZE(m_dstSpec.format) / 8) * m_dstSpec.channels)) / m_dstSpec.freq;
+        videoPaquetsProcess();
         return filled;
+    }
 
     got_some = false;
-    got_video = false;
 
     while(av_read_frame(m_inputCtx, &m_paquet) >= 0)
     {
-        /* check if the packet belongs to a stream we are interested in, otherwise */
-        /* skip it */
         if(m_paquet.stream_index == m_streamAudio)
+        {
             ret = decode_audio_packet(got_some);
+            av_packet_unref(&m_paquet);
+        }
         else if(m_paquet.stream_index == m_streamVideo)
-            ret = decode_video_packet(got_video);
-
-        av_packet_unref(&m_paquet);
+            videoPaquetToQueue();
+        else
+            av_packet_unref(&m_paquet);
 
         if(ret < 0 || got_some)
             break;
