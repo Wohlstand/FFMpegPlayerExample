@@ -14,6 +14,8 @@ extern "C"
 #include <libswscale/swscale.h>
 }
 
+#include <string>
+
 #include "video_player.h"
 
 #define AUDIO_INBUF_SIZE 4096
