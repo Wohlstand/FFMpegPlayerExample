@@ -12,7 +12,6 @@ extern "C"
 #include <libavutil/pixfmt.h>
 }
 
-#include <string>
 #include <vector>
 
 
