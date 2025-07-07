@@ -107,7 +107,7 @@ int main()
 
     spec.format = AUDIO_S16SYS;
     spec.freq = 44100;
-    spec.samples = 1024;
+    spec.samples = 256;
     spec.channels = 2;
     spec.callback = &DerVideoPlayer::audio_out_stream;
     spec.userdata = &player;
@@ -115,8 +115,9 @@ int main()
     SDL_OpenAudio(&spec, &obtained);
     player.setAudioSpec(obtained);
 
+    videoLoop("/home/vitaly/Видео/RPGMakerVideos/2000/Doedelburg 2/Movie/NUTTNBUMSA_.AVI", player, render, window);
 
-    dir.beginWalking({".avi", ".mpg"});
+    dir.beginWalking({".avi", ".mpg", ".avd"});
     std::string cur_path;
     std::vector<std::string> list;
 
