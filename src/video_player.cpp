@@ -112,7 +112,7 @@ void DerVideoPlayer::videoPaquetsProcess()
 
     videoTime = (double)m_videoPaquets.front().pts * timeBase;
 
-    while((m_frameFirst || videoTime < m_time) && !m_videoPaquets.empty())
+    while(videoTime < m_time && !m_videoPaquets.empty())
     {
         bool got;
         auto p = m_videoPaquets.front();
@@ -120,8 +120,6 @@ void DerVideoPlayer::videoPaquetsProcess()
         decode_video_packet(p, got);
         av_packet_unref(&p);
         m_videoPaquets.pop_front();
-        if(m_frameFirst)
-            m_frameFirst = false;
     }
 }
 
@@ -435,6 +433,9 @@ int DerVideoPlayer::decode_video_packet(AVPacket &paquet, bool &got)
 
         SDL_UnlockMutex(m_textureMutex);
         m_hasVideoFrame = true;
+
+        double fps = av_q2d(av_guess_frame_rate(m_inputCtx, m_video, in_frame));
+        m_timeNextFrame = m_time + (1.0 / fps);
 
         av_frame_unref(in_frame);
 
@@ -784,7 +785,7 @@ void DerVideoPlayer::drawVideoFrame()
 int DerVideoPlayer::runAV(Uint8 *stream, int len)
 {
     int filled, ret = 0;
-    bool got_some;
+    bool got_some, got_video;
 
     if(!m_audio) // When no audio, just process a time
     {
@@ -814,15 +815,19 @@ int DerVideoPlayer::runAV(Uint8 *stream, int len)
         return len;
     }
 
-    filled = SDL_AudioStreamGet(m_audio_cvt, stream, len);
-    if(filled != 0)
+    if(!m_videoPaquets.empty() || (m_time < m_timeNextFrame))
     {
-        m_time += (filled / (double)((SDL_AUDIO_BITSIZE(m_dstSpec.format) / 8) * m_dstSpec.channels)) / m_dstSpec.freq;
-        videoPaquetsProcess();
-        return filled;
+        filled = SDL_AudioStreamGet(m_audio_cvt, stream, len);
+        if(filled != 0)
+        {
+            m_time += (filled / (double)((SDL_AUDIO_BITSIZE(m_dstSpec.format) / 8) * m_dstSpec.channels)) / m_dstSpec.freq;
+            videoPaquetsProcess();
+            return filled;
+        }
     }
 
     got_some = false;
+    got_video = false;
 
     while(av_read_frame(m_inputCtx, &m_paquet) >= 0)
     {
@@ -832,11 +837,14 @@ int DerVideoPlayer::runAV(Uint8 *stream, int len)
             av_packet_unref(&m_paquet);
         }
         else if(m_paquet.stream_index == m_streamVideo)
+        {
             videoPaquetToQueue();
+            got_video = true;
+        }
         else
             av_packet_unref(&m_paquet);
 
-        if(ret < 0 || got_some)
+        if(ret < 0 || (got_some && got_video))
             break;
     }
 

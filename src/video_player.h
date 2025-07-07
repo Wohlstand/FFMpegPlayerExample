@@ -68,9 +68,9 @@ class DerVideoPlayer
     int             m_dst_h = 0;
 
     double          m_time = 0.0;
+    double          m_timeNextFrame = 0.0;
     bool            m_atEnd = false;
     bool            m_hasVideoFrame = false;
-    bool            m_frameFirst = false;
 
     /* ------------------------------------------ */
     //! Input context of video stream
